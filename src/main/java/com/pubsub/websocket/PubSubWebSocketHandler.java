@@ -65,7 +65,7 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
             handleClientMessage(session, clientMsg);
         } catch (Exception e) {
             log.warn("WS parse/handle failed: sessionId={}, err={}", session.getId(), e.toString());
-            sendError(session, null, "BAD_REQUEST", "Invalid message format: " + e.getMessage());
+            sendError(session, null, null, "BAD_REQUEST", "Invalid message format: " + e.getMessage());
         }
     }
 
@@ -78,7 +78,7 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
 
         String type = clientMsg.getType();
         if (type == null) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "Missing type field");
+            sendError(session, clientMsg.getRequestId(), clientMsg.getTopic(), "BAD_REQUEST", "Missing type field");
             return;
         }
 
@@ -96,7 +96,7 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
                 handlePing(session, clientMsg);
                 break;
             default:
-                sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "Unknown message type: " + type);
+                sendError(session, clientMsg.getRequestId(), clientMsg.getTopic(), "BAD_REQUEST", "Unknown message type: " + type);
         }
     }
 
@@ -105,17 +105,17 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
         String clientId = clientMsg.getClientId();
 
         if (topic == null || topic.isEmpty()) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "Topic is required for subscribe");
+            sendError(session, clientMsg.getRequestId(), null, "BAD_REQUEST", "Topic is required for subscribe");
             return;
         }
 
         if (clientId == null || clientId.isEmpty()) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "client_id is required for subscribe");
+            sendError(session, clientMsg.getRequestId(), topic, "BAD_REQUEST", "client_id is required for subscribe");
             return;
         }
 
         if (!topicService.topicExists(topic)) {
-            sendError(session, clientMsg.getRequestId(), "TOPIC_NOT_FOUND", "Topic does not exist: " + topic);
+            sendError(session, clientMsg.getRequestId(), topic, "TOPIC_NOT_FOUND", "Topic does not exist: " + topic);
             return;
         }
 
@@ -137,12 +137,12 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
         String clientId = clientMsg.getClientId();
 
         if (topic == null || topic.isEmpty()) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "Topic is required for unsubscribe");
+            sendError(session, clientMsg.getRequestId(), null, "BAD_REQUEST", "Topic is required for unsubscribe");
             return;
         }
 
         if (clientId == null || clientId.isEmpty()) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "client_id is required for unsubscribe");
+            sendError(session, clientMsg.getRequestId(), topic, "BAD_REQUEST", "client_id is required for unsubscribe");
             return;
         }
 
@@ -165,17 +165,17 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
         Message message = clientMsg.getMessage();
 
         if (topic == null || topic.isEmpty()) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "Topic is required for publish");
+            sendError(session, clientMsg.getRequestId(), null, "BAD_REQUEST", "Topic is required for publish");
             return;
         }
 
         if (message == null) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "Message is required for publish");
+            sendError(session, clientMsg.getRequestId(), topic, "BAD_REQUEST", "Message is required for publish");
             return;
         }
 
         if (message.getId() == null || message.getId().isEmpty()) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "message.id must be a valid UUID");
+            sendError(session, clientMsg.getRequestId(), topic, "BAD_REQUEST", "message.id must be a valid UUID");
             return;
         }
 
@@ -183,12 +183,12 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
         try {
             UUID.fromString(message.getId());
         } catch (IllegalArgumentException e) {
-            sendError(session, clientMsg.getRequestId(), "BAD_REQUEST", "message.id must be a valid UUID");
+            sendError(session, clientMsg.getRequestId(), topic, "BAD_REQUEST", "message.id must be a valid UUID");
             return;
         }
 
         if (!topicService.topicExists(topic)) {
-            sendError(session, clientMsg.getRequestId(), "TOPIC_NOT_FOUND", "Topic does not exist: " + topic);
+            sendError(session, clientMsg.getRequestId(), topic, "TOPIC_NOT_FOUND", "Topic does not exist: " + topic);
             return;
         }
 
@@ -210,10 +210,11 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
         sendMessage(session, pong);
     }
 
-    private void sendError(WebSocketSession session, String requestId, String code, String message) {
+    private void sendError(WebSocketSession session, String requestId, String topic, String code, String message) {
         ServerMessage error = new ServerMessage();
         error.setType("error");
         error.setRequestId(requestId);
+        error.setTopic(topic);
         error.setError(new ServerMessage.ErrorInfo(code, message));
         sendMessage(session, error);
     }

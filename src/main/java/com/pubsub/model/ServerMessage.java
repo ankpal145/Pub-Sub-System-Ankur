@@ -1,11 +1,14 @@
 package com.pubsub.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ServerMessage {
     private String type; // ack, event, error, pong, info
+
+    @JsonProperty("request_id")
     private String requestId;
     private String topic;
     private Message message;

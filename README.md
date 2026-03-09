@@ -33,13 +33,17 @@ A simplified in-memory Pub/Sub system implemented in Java using Spring Boot. Thi
 
 #### Backpressure Policy
 - **Queue Size**: Each subscriber has a bounded queue of 1000 messages
-- **Overflow Handling**: When queue is full, the subscriber is disconnected with `SLOW_CONSUMER` error
+- **Overflow Handling**: When queue is full, the subscriber is **disconnected** after receiving an `error` with code `SLOW_CONSUMER`
 - **Rationale**: Prevents memory exhaustion and ensures fast publishers don't overwhelm slow consumers
 
 #### Message Replay
 - Ring buffer maintains last 100 messages per topic
-- Subscribers can request replay of last N messages (up to 100)
-- Messages are delivered in chronological order
+- Subscribers can request replay of the **most recent** N messages (`last_n`, capped at 100)
+- Replayed messages are delivered in **chronological order** (oldest → newest)
+
+#### Timestamps
+- Server timestamps (`ts`) are emitted as **ISO-8601 strings** (e.g., `"2025-08-25T10:01:00Z"`)
+- For `event`, `ts` represents the **delivery timestamp**
 
 #### Fan-Out Implementation
 - Each message published to a topic is delivered to all active subscribers
@@ -47,10 +51,8 @@ A simplified in-memory Pub/Sub system implemented in Java using Spring Boot. Thi
 - Each subscriber has its own message processing thread
 
 #### Graceful Shutdown
-- Stops accepting new WebSocket connections
-- Flushes in-flight messages (2 second grace period)
-- Closes all WebSocket sessions cleanly
-- Shuts down background threads
+- Best-effort shutdown: stops background heartbeat and closes sockets as the server stops
+- No persistence across restarts (in-memory only)
 
 ## API Documentation
 
@@ -139,6 +141,7 @@ A simplified in-memory Pub/Sub system implemented in Java using Spring Boot. Thi
 {
   "type": "error",
   "request_id": "req-67890",
+  "topic": "orders",
   "error": {
     "code": "BAD_REQUEST",
     "message": "message.id must be a valid UUID"
@@ -372,6 +375,17 @@ Expected:
 - Publisher receives `ack`
 - Subscribers receive `event`
 
+#### Replay (`last_n`)
+
+1. Publish a few messages to `orders`
+2. Subscribe with `last_n`:
+
+```json
+{"type":"subscribe","topic":"orders","client_id":"s2","last_n":2,"request_id":"sub-replay"}
+```
+
+Expected: receive the **last 2** events immediately (oldest → newest), then continue with live events.
+
 #### Ping / Pong
 ```json
 {"type":"ping","request_id":"ping-1"}
@@ -393,51 +407,10 @@ Expected: `ack`
 {"type":"info","topic":"orders","msg":"topic_deleted","ts":"..."}
 ```
 
-### WebSocket Testing
+### Notes
 
-You can test WebSocket connections using tools like:
-- `wscat`: `wscat -c ws://localhost:8080/ws`
-- Postman (WebSocket support)
-- Custom client applications
-
-### Example Test Flow
-
-1. **Create a topic**:
-```bash
-curl -X POST http://localhost:8080/topics \
-  -H "Content-Type: application/json" \
-  -d '{"name": "orders"}'
-```
-
-2. **Connect via WebSocket** and subscribe:
-```json
-{
-  "type": "subscribe",
-  "topic": "orders",
-  "client_id": "subscriber1",
-  "last_n": 0
-}
-```
-
-3. **Publish a message** (from another client):
-```json
-{
-  "type": "publish",
-  "topic": "orders",
-  "message": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "payload": {
-      "order_id": "ORD-123",
-      "amount": 99.5
-    }
-  }
-}
-```
-
-4. **Check stats**:
-```bash
-curl http://localhost:8080/stats
-```
+- WebSocket client fields accept the assignment’s snake_case keys (`client_id`, `last_n`, `request_id`).
+- `request_id` is echoed back on `ack`/`error` when provided.
 
 ## Configuration
 

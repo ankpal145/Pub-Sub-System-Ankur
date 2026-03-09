@@ -2,6 +2,7 @@ package com.pubsub.service;
 
 import com.pubsub.model.Message;
 import com.pubsub.util.JsonUtil;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.util.*;
@@ -105,10 +106,34 @@ public class Topic {
             // Non-blocking offer - returns false if queue is full
             boolean offered = messageQueue.offer(message);
             if (!offered) {
-                // Queue overflow - backpressure triggered
+                // Queue overflow - backpressure triggered (disconnect slow consumer)
+                disconnectSlowConsumer();
                 return false;
             }
             return true;
+        }
+
+        private void disconnectSlowConsumer() {
+            if (!active) {
+                return;
+            }
+            active = false;
+            messageQueue.clear();
+
+            try {
+                if (session.isOpen()) {
+                    String err = JsonUtil.errorMessageToJson(
+                        topicName,
+                        null,
+                        "SLOW_CONSUMER",
+                        "subscriber queue overflow"
+                    );
+                    session.sendMessage(new org.springframework.web.socket.TextMessage(err));
+                    session.close(CloseStatus.POLICY_VIOLATION);
+                }
+            } catch (Exception ignored) {
+                // Best-effort: ignore failures while closing.
+            }
         }
 
         private void startMessageProcessor() {
@@ -186,18 +211,24 @@ public class Topic {
                 return result;
             }
 
+            int toRead = Math.min(n, count);
+
+            // We want the most recent N messages, returned in chronological order (oldest -> newest).
+            // writeIndex always points to the next write slot.
             int startIndex;
             if (count < size) {
-                startIndex = 0;
+                // Buffer not wrapped yet: valid range is [0, count)
+                startIndex = Math.max(0, count - toRead);
             } else {
-                startIndex = writeIndex;
+                // Buffer wrapped: oldest is at writeIndex, newest is at (writeIndex - 1 + size) % size.
+                startIndex = (writeIndex - toRead + size) % size;
             }
 
-            int toRead = Math.min(n, count);
             for (int i = 0; i < toRead; i++) {
                 int index = (startIndex + i) % size;
-                if (buffer[index] != null) {
-                    result.add(buffer[index]);
+                Message msg = buffer[index];
+                if (msg != null) {
+                    result.add(msg);
                 }
             }
 

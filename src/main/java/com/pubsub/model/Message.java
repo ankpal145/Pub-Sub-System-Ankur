@@ -1,5 +1,6 @@
 package com.pubsub.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.Map;
@@ -8,6 +9,10 @@ import java.util.Map;
 public class Message {
     private String id;
     private Map<String, Object> payload;
+
+    // The assignment protocol includes delivery timestamp as top-level `ts`.
+    // Keep internal timestamp but don't emit it on the wire.
+    @JsonIgnore
     private Instant timestamp;
 
     public Message() {
