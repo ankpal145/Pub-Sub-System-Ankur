@@ -54,3 +54,10 @@ hs_err_pid*.log
 *.zip
 *.tar.gz
 *.rar
+
+# Node / JS helpers (not needed in repo)
+node_modules/
+package-lock.json
+package.json
+ws-publisher.js
+ws-backpressure-test.ps1

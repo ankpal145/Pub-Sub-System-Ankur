@@ -116,12 +116,27 @@ public class PubSubWebSocketHandler extends TextWebSocketHandler {
 
         if (!topicService.topicExists(topic)) {
             sendError(session, clientMsg.getRequestId(), topic, "TOPIC_NOT_FOUND", "Topic does not exist: " + topic);
+            // Close the WS channel immediately for invalid topic on subscribe
+            try {
+                session.close(CloseStatus.PROTOCOL_ERROR);
+            } catch (Exception ignored) {
+            }
             return;
         }
 
         info.setClientId(clientId);
         var topicObj = topicService.getTopic(topic);
-        topicObj.subscribe(clientId, session, clientMsg.getLastN());
+        boolean subscribed = topicObj.subscribe(clientId, session, clientMsg.getLastN());
+        if (!subscribed) {
+            // Duplicate clientId on same topic is not allowed
+            sendError(session, clientMsg.getRequestId(), topic, "BAD_REQUEST",
+                    "client_id is already subscribed to this topic");
+            try {
+                session.close(CloseStatus.POLICY_VIOLATION);
+            } catch (Exception ignored) {
+            }
+            return;
+        }
         info.addSubscribedTopic(topic);
 
         ServerMessage ack = new ServerMessage();

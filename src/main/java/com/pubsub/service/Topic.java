@@ -14,7 +14,8 @@ public class Topic {
     private final Map<String, Subscriber> subscribers = new ConcurrentHashMap<>();
     private final RingBuffer messageHistory;
     private final AtomicLong messageCount = new AtomicLong(0);
-    private static final int MAX_QUEUE_SIZE = 1000; // Backpressure limit per subscriber
+    // Backpressure limit per subscriber (kept deliberately small so overflow is easy to observe in tests)
+    private static final int MAX_QUEUE_SIZE = 10;
     private static final int HISTORY_SIZE = 100; // Last N messages for replay
 
     public Topic(String name) {
@@ -26,7 +27,17 @@ public class Topic {
         return name;
     }
 
-    public synchronized void subscribe(String clientId, WebSocketSession session, Integer lastN) {
+    /**
+     * Subscribe a client to this topic.
+     *
+     * @return true if subscription succeeded, false if the clientId is already subscribed.
+     */
+    public synchronized boolean subscribe(String clientId, WebSocketSession session, Integer lastN) {
+        if (subscribers.containsKey(clientId)) {
+            // Reject duplicate clientId on the same topic
+            return false;
+        }
+
         Subscriber subscriber = new Subscriber(clientId, session, name);
         subscribers.put(clientId, subscriber);
 
@@ -37,6 +48,7 @@ public class Topic {
                 subscriber.sendMessage(msg);
             }
         }
+        return true;
     }
 
     public synchronized void unsubscribe(String clientId) {
@@ -143,6 +155,9 @@ public class Topic {
                         Message message = messageQueue.poll(1, TimeUnit.SECONDS);
                         if (message != null) {
                             sendToWebSocket(message);
+                            // Artificial delay to simulate a slow consumer so backpressure
+                            // (queue overflow) is easy to trigger in tests.
+                            Thread.sleep(50);
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
@@ -173,6 +188,8 @@ public class Topic {
                 if (session.isOpen()) {
                     String json = JsonUtil.infoMessageToJson(topicName, "topic_deleted");
                     session.sendMessage(new org.springframework.web.socket.TextMessage(json));
+                    // Close the WebSocket channel for this topic as part of deletion
+                    session.close(CloseStatus.NORMAL);
                 }
             } catch (Exception e) {
                 // Ignore

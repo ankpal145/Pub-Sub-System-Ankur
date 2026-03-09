@@ -54,6 +54,10 @@ A simplified in-memory Pub/Sub system implemented in Java using Spring Boot. Thi
 - Best-effort shutdown: stops background heartbeat and closes sockets as the server stops
 - No persistence across restarts (in-memory only)
 
+#### Authentication (optional)
+- Supports a simple API key via `X-API-Key` header for both REST and WebSocket.
+- When `app.api-key` is set (see configuration), all incoming requests must include a valid key.
+
 ## API Documentation
 
 ### WebSocket Endpoint: `/ws`
@@ -420,6 +424,7 @@ Configuration can be modified in `src/main/resources/application.properties`:
 server.port=8080
 spring.application.name=pub-sub-system
 spring.websocket.allowed-origins=*
+app.api-key=          # optional, if set all REST + WS calls must send X-API-Key
 ```
 
 ## Limitations
@@ -432,9 +437,27 @@ spring.websocket.allowed-origins=*
 ## Performance Considerations
 
 - **Message History**: Limited to last 100 messages per topic
-- **Subscriber Queue**: Maximum 1000 messages per subscriber
+- **Subscriber Queue**: Maximum 1000 messages per subscriber (can be tuned in code)
 - **Concurrent Subscribers**: Designed to handle hundreds of concurrent subscribers per topic
 - **Message Throughput**: Optimized for high-throughput scenarios with bounded memory usage
+
+## Notable Edge Cases & Behaviors
+
+- **Unknown message type**: returns `error` with `BAD_REQUEST` and keeps the WS open.
+- **Malformed JSON**: returns `error` with `BAD_REQUEST` (`Invalid message format ...`).
+- **Missing fields**:
+  - Subscribe/Unsubscribe/Publish all validate required `topic`, `client_id`, and `message.id` (UUID).
+- **Non-existent topic**:
+  - Subscribe/Publish return `TOPIC_NOT_FOUND`; for subscribe, the WS is closed after the error.
+- **Duplicate `client_id` on same topic**:
+  - Second subscribe fails with `BAD_REQUEST` and that WS is closed (`client_id is already subscribed to this topic`).
+- **Unsubscribe when not subscribed**:
+  - Treated as idempotent; `ack` is returned even if the client was not subscribed.
+- **Topic deletion**:
+  - All subscribers receive `info topic_deleted` and their WS sessions are closed.
+  - Subsequent operations on that topic return `TOPIC_NOT_FOUND`.
+- **Backpressure**:
+  - Per-subscriber queue is bounded; overflow triggers `SLOW_CONSUMER` error and closes that subscriber’s WS.
 
 ## Future Enhancements
 
